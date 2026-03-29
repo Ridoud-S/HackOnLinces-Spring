@@ -91,6 +91,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
             @Param("search")   String search
     );
 
+
+
     /*
      * Stats para el dashboard.
      *
@@ -128,4 +130,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
             @Param("startOfToday") LocalDateTime startOfToday,
             @Param("startOfWeek")  LocalDateTime startOfWeek
     );
+
+
 }

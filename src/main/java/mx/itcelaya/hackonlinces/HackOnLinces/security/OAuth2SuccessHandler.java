@@ -71,6 +71,18 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             return;
         }
 
+// Solo se permite OAuth2 con correos institucionales
+        if (!email.endsWith("@" + internalDomain)) {
+            log.warn("Login OAuth2 bloqueado para correo no institucional: {}", email);
+            String redirectUrl = UriComponentsBuilder
+                    .fromUriString(getFrontendRedirectUrl())
+                    .queryParam("error", "solo_correos_institucionales")
+                    .build().toUriString();
+            getRedirectStrategy().sendRedirect(request, response, redirectUrl);
+            return;
+        }
+
+
         // 1. Buscar por providerUserId (más robusto que buscar por email)
         // La variable 'user' ahora es "effectively final" porque no la reasignaremos.
         User user = authProviderRepository
@@ -112,6 +124,17 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     private User findOrCreateUserForGoogle(String email, String name, String avatarUrl, String googleSub) {
         return userRepository.findByEmail(email)
+                .map(existingUser -> {
+                    // Si es INTERNAL y no tiene PARTICIPANT, se lo asignamos
+                    boolean hasParticipant = userRoleRepository
+                            .existsByUser_IdAndRole_Name(existingUser.getId(), RoleName.PARTICIPANT);
+                    if (!hasParticipant) {
+                        log.warn("Usuario INTERNAL {} sin rol PARTICIPANT. Corrigiendo...", email);
+                        Role role = roleRepository.findByName(RoleName.PARTICIPANT).orElseThrow();
+                        userRoleRepository.save(new UserRole(existingUser, role));
+                    }
+                    return existingUser;
+                })
                 .orElseGet(() -> createUserFromGoogle(email, name));
     }
 

@@ -10,6 +10,7 @@ public record RegisterRequest(
         @Size(max = 120, message = "El nombre no puede exceder 120 caracteres")
         String fullName,
 
+        @NotBlank(message = "El nombre del instituto es obligatorio")
         @Size(max = 120, message = "El nombre del instituto no puede exceder 120 caracteres")
         String instituteName,
 
