@@ -34,6 +34,7 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final AppUserDetailsService userDetailsService;
+    private final mx.itcelaya.hackonlinces.HackOnLinces.security.OAuth2SuccessHandler oauth2SuccessHandler;
 
     @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
@@ -80,13 +81,13 @@ public class SecurityConfig {
                  * El successHandler lo implementaremos en la Fase 3 (OAuth + JWT).
                  */
                 .oauth2Login(oauth2 -> oauth2
-                                .authorizationEndpoint(ep ->
-                                        ep.baseUri("/oauth2/authorization")
-                                )
-                                .redirectionEndpoint(ep ->
-                                        ep.baseUri("/login/oauth2/code/*")
-                                )
-                        // successHandler se añadirá en Fase 3
+                        .authorizationEndpoint(ep ->
+                                ep.baseUri("/oauth2/authorization")
+                        )
+                        .redirectionEndpoint(ep ->
+                                ep.baseUri("/login/oauth2/code/*")
+                        )
+                        .successHandler(oauth2SuccessHandler)
                 )
 
                 .authenticationProvider(authenticationProvider())
