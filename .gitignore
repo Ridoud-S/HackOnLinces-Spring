@@ -39,5 +39,7 @@ src/main/resources/application-prod.yaml
 
 # NO ignorar los ejemplos
 !src/main/resources/*.example
+# Docker
+uploads/
 
 

@@ -34,6 +34,10 @@ public class DataInitializer implements ApplicationRunner {
     private final AuthProviderRepository authProviderRepository;
     private final PasswordEncoder passwordEncoder;
 
+    /**
+     * admin@hackonlinces.mx
+     * Admin1234!
+     * */
     @Value("${app.seed.admin-email:admin@hackonlinces.mx}")
     private String adminEmail;
 

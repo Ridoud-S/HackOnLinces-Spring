@@ -34,6 +34,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -53,6 +54,11 @@ public class AdminService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
 
+    // Seguro para uso concurrente; java.util.Random NO lo es.
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final String PASSWORD_CHARS =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+
     // ── Dashboard ────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -60,28 +66,32 @@ public class AdminService {
         LocalDateTime startOfToday = LocalDateTime.now().truncatedTo(ChronoUnit.DAYS);
         LocalDateTime startOfWeek  = LocalDateTime.now().minusDays(7);
 
+        Object[] userStatsArray = userRepository.getUserStats(startOfToday, startOfWeek);
+
         DashboardResponse.UserStats userStats = new DashboardResponse.UserStats(
-                userRepository.count(),
-                userRepository.countByAccountStatus(AccountStatus.PENDING),
-                userRepository.countByAccountStatus(AccountStatus.APPROVED),
-                userRepository.countByAccountStatus(AccountStatus.REJECTED),
-                userRepository.countByUserType(UserType.INTERNAL),
-                userRepository.countByUserType(UserType.EXTERNAL),
-                userRepository.countByRoleName(RoleName.ADMIN),
-                userRepository.countByRoleName(RoleName.JUDGE),
-                userRepository.countByRoleName(RoleName.SPEAKER),
-                userRepository.countByRoleName(RoleName.PARTICIPANT),
-                userRepository.countByRoleName(RoleName.GUEST),
-                userRepository.countRegisteredSince(startOfToday),
-                userRepository.countRegisteredSince(startOfWeek)
+                toLong(userStatsArray, 0),   // total
+                toLong(userStatsArray, 1),   // pending
+                toLong(userStatsArray, 2),   // approved
+                toLong(userStatsArray, 3),   // rejected
+                toLong(userStatsArray, 4),   // internal
+                toLong(userStatsArray, 5),   // external
+                toLong(userStatsArray, 6),   // admins
+                toLong(userStatsArray, 7),   // judges
+                toLong(userStatsArray, 8),   // speakers
+                toLong(userStatsArray, 9),   // participants
+                toLong(userStatsArray, 10),  // guests
+                toLong(userStatsArray, 11),  // registeredToday
+                toLong(userStatsArray, 12)   // registeredThisWeek
         );
 
+        Object[] submissionStatsArray = submissionRepository.getSubmissionStats();
+
         DashboardResponse.SubmissionStats submissionStats = new DashboardResponse.SubmissionStats(
-                submissionRepository.countTotal(),
-                submissionRepository.countByStatus(SubmissionStatus.PENDING),
-                submissionRepository.countByStatus(SubmissionStatus.APPROVED),
-                submissionRepository.countByStatus(SubmissionStatus.REJECTED),
-                submissionRepository.countByStatus(SubmissionStatus.RESUBMIT_REQUIRED)
+                toLong(submissionStatsArray, 0),  // total
+                toLong(submissionStatsArray, 1),  // pending
+                toLong(submissionStatsArray, 2),  // approved
+                toLong(submissionStatsArray, 3),  // rejected
+                toLong(submissionStatsArray, 4)   // resubmit_required
         );
 
         return new DashboardResponse(userStats, submissionStats);
@@ -91,12 +101,36 @@ public class AdminService {
 
     @Transactional(readOnly = true)
     public List<AdminUserResponse> getAllUsers(AccountStatus status, UserType userType, String search) {
-        // Normalizar search vacío a null para que la query lo ignore
-        String normalizedSearch = (search != null && search.isBlank()) ? null : search;
+        String normalizedSearch = (search == null || search.isBlank())
+                ? null
+                : "%" + search.toLowerCase() + "%";  // ← wildcards + lowercase aquí
 
-        return userRepository.findAllWithFilters(status, userType, normalizedSearch)
-                .stream()
-                .map(u -> userMapper.toAdminUserResponse(u, submissionRepository.countByUser_Id(u.getId())))
+        List<Object[]> results = userRepository.findAllWithSubmissionCounts(
+                status, userType, normalizedSearch
+        );
+
+        return results.stream()
+                .map(row -> {
+                    User u = (User) row[0];
+                    /*
+                     * COUNT() en JPQL NUNCA devuelve null, siempre Long.
+                     * El cast a Number + longValue() es defensivo por si
+                     * algún dialecto devuelve BigInteger o Integer.
+                     */
+                    long submissionCount = row[1] != null
+                            ? ((Number) row[1]).longValue()
+                            : 0L;
+
+                    /*
+                     * La query no hace JOIN FETCH, así que userRoles está lazy.
+                     * Forzamos la carga aquí dentro de la transacción activa
+                     * para que el mapper no encuentre una colección no inicializada.
+                     */
+                    User withRoles = userRepository.findByEmailWithRoles(u.getEmail())
+                            .orElse(u);
+
+                    return userMapper.toAdminUserResponse(withRoles, (int) submissionCount);
+                })
                 .toList();
     }
 
@@ -156,11 +190,12 @@ public class AdminService {
             throw new ForbiddenActionException("No se puede asignar el estado PENDING manualmente");
         }
 
-        User user = userRepository.findByEmailWithRoles(
-                userRepository.findById(userId)
-                        .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"))
-                        .getEmail()
-        ).orElseThrow();
+        // Carga directamente con roles para no hacer dos queries innecesarias
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+
+        user = userRepository.findByEmailWithRoles(user.getEmail())
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
 
         user.setAccountStatus(request.decision());
 
@@ -172,29 +207,31 @@ public class AdminService {
         log.info("Usuario {} actualizado a {} por admin", user.getEmail(), request.decision());
 
         User updated = userRepository.findByEmailWithRoles(user.getEmail()).orElseThrow();
-        return userMapper.toAdminUserResponse(updated, submissionRepository.countByUser_Id(userId));
+        return userMapper.toAdminUserResponse(updated,
+                (int) submissionRepository.countByUser_Id(userId));
     }
 
     // ── Cambio de rol ────────────────────────────────────────────────────────
 
     @Transactional
     public AdminUserResponse changeRole(Long userId, ChangeRoleRequest request) {
-        User user = userRepository.findByEmailWithRoles(
-                userRepository.findById(userId)
-                        .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"))
-                        .getEmail()
-        ).orElseThrow();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+
+        user = userRepository.findByEmailWithRoles(user.getEmail()).orElseThrow();
 
         Role newRole = roleRepository.findByName(request.role())
                 .orElseThrow(() -> new ResourceNotFoundException("Rol no encontrado: " + request.role()));
 
         userRoleRepository.deleteAll(user.getUserRoles());
+        userRoleRepository.flush(); // garantiza que el DELETE llega a BD antes del INSERT
         userRoleRepository.save(new UserRole(user, newRole));
 
         log.info("Rol de usuario {} cambiado a {}", user.getEmail(), request.role());
 
         User updated = userRepository.findByEmailWithRoles(user.getEmail()).orElseThrow();
-        return userMapper.toAdminUserResponse(updated, submissionRepository.countByUser_Id(userId));
+        return userMapper.toAdminUserResponse(updated,
+                (int) submissionRepository.countByUser_Id(userId));
     }
 
     // ── Submissions ──────────────────────────────────────────────────────────
@@ -218,7 +255,8 @@ public class AdminService {
                 .orElseThrow(() -> new ResourceNotFoundException("Submission no encontrada"));
 
         if (submission.getStatus() != SubmissionStatus.PENDING) {
-            throw new ConflictException("Esta submission ya fue revisada con estado: " + submission.getStatus());
+            throw new ConflictException(
+                    "Esta submission ya fue revisada con estado: " + submission.getStatus());
         }
 
         User admin = userRepository.findById(adminId)
@@ -243,7 +281,10 @@ public class AdminService {
                     submissionId, user.getEmail());
         }
 
-        return submissionMapper.toResponse(submissionRepository.findById(submissionId).orElseThrow());
+        // Recarga para reflejar el estado persistido, incluidos los documentos
+        return submissionMapper.toResponse(
+                submissionRepository.findById(submissionId).orElseThrow()
+        );
     }
 
     // ── Helpers privados ─────────────────────────────────────────────────────
@@ -259,13 +300,39 @@ public class AdminService {
         user.getUserRoles().stream()
                 .filter(ur -> ur.getRole().getName() == RoleName.GUEST)
                 .findFirst()
-                .ifPresent(userRoleRepository::delete);
+                .ifPresent(guestRole -> {
+                    userRoleRepository.delete(guestRole);
+                    user.getUserRoles().remove(guestRole);
+                });
 
-        userRoleRepository.save(new UserRole(user, participantRole));
+        userRoleRepository.flush(); // forzar el DELETE antes del INSERT
+
+        UserRole newRole = new UserRole(user, participantRole);
+        userRoleRepository.save(newRole);
+        user.getUserRoles().add(newRole);
     }
 
+    /**
+     * Genera una contraseña temporal de 12 caracteres con SecureRandom.
+     * java.util.Random es predecible; nunca usarlo para credenciales.
+     */
     private String generateTemporaryPassword() {
-        // Password temporal simple — el usuario debe cambiarlo
-        return "Temp" + UUID.randomUUID().toString().substring(0, 8) + "!";
+        StringBuilder password = new StringBuilder(12);
+        for (int i = 0; i < 12; i++) {
+            password.append(PASSWORD_CHARS.charAt(SECURE_RANDOM.nextInt(PASSWORD_CHARS.length())));
+        }
+        return password.toString();
+    }
+
+    /**
+     * Extrae un valor numérico del Object[] devuelto por las queries de estadísticas.
+     * Hibernate puede retornar Long, Integer o BigInteger según el dialecto —
+     * castear a Number es la única forma segura de cubrirlos todos.
+     */
+    private long toLong(Object[] array, int index) {
+        if (array == null || index >= array.length || array[index] == null) {
+            return 0L;
+        }
+        return ((Number) array[index]).longValue();
     }
 }

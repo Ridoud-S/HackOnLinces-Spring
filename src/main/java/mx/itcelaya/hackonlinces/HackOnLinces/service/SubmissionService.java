@@ -11,6 +11,7 @@ import mx.itcelaya.hackonlinces.HackOnLinces.entity.User;
 import mx.itcelaya.hackonlinces.HackOnLinces.enums.AccountStatus;
 import mx.itcelaya.hackonlinces.HackOnLinces.enums.SubmissionStatus;
 import mx.itcelaya.hackonlinces.HackOnLinces.enums.UserType;
+import mx.itcelaya.hackonlinces.HackOnLinces.exception.AppException;
 import mx.itcelaya.hackonlinces.HackOnLinces.exception.ConflictException;
 import mx.itcelaya.hackonlinces.HackOnLinces.exception.ForbiddenActionException;
 import mx.itcelaya.hackonlinces.HackOnLinces.exception.ResourceNotFoundException;
@@ -46,72 +47,76 @@ public class SubmissionService {
 
     @Transactional
     public SubmissionResponse create(Long userId, CreateSubmissionRequest request, MultipartFile file) {
-
+        // 1. Cargar el usuario y validar existencia
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
 
-        // Regla 1: solo usuarios EXTERNAL requieren submission
+        // 2. REGLA DE NEGOCIO: Solo usuarios EXTERNAL pasan por este proceso de admisión
         if (user.getUserType() != UserType.EXTERNAL) {
-            throw new ForbiddenActionException("Solo los usuarios externos pueden enviar submissions");
+            throw new ForbiddenActionException("Solo los usuarios externos requieren enviar una carta de intención.");
         }
 
-        // Regla 2: si ya fue aprobado, no puede reenviar
+        // 3. REGLA DE SEGURIDAD: Si ya fue aprobado, su ciclo de admisión terminó
         if (user.getAccountStatus() == AccountStatus.APPROVED) {
-            throw new ConflictException("Tu cuenta ya fue aprobada. No es necesario enviar otra submission");
+            throw new ConflictException("Tu cuenta ya ha sido aprobada. No es necesario enviar más documentos.");
         }
 
-        // Regla 3: no puede haber dos submissions PENDING al mismo tiempo
+        // 4. REGLA DE CONTROL: Solo una solicitud PENDING a la vez para evitar spam al admin
         if (submissionRepository.existsByUser_IdAndStatus(userId, SubmissionStatus.PENDING)) {
-            throw new ConflictException("Ya tienes una submission pendiente de revisión. Espera la respuesta del administrador");
+            throw new ConflictException("Ya tienes una solicitud en revisión. Por favor, espera la respuesta del administrador.");
         }
 
-        // Regla 4: límite de intentos
+        // 5. REGLA DE LÍMITE: Validar intentos máximos (configurable)
         int totalAttempts = submissionRepository.countByUser_Id(userId);
         if (totalAttempts >= maxAttempts) {
-            throw new ForbiddenActionException(
-                    "Has alcanzado el límite de " + maxAttempts + " intentos de submission"
-            );
+            throw new ForbiddenActionException("Has alcanzado el límite máximo de " + maxAttempts + " intentos permitidos.");
         }
 
-        // Regla 5: archivo obligatorio
+        // 6. VALIDACIÓN DE ARCHIVO: La carta de intención es obligatoria
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Debes adjuntar un archivo a tu submission");
+            throw new IllegalArgumentException("Es obligatorio adjuntar el documento de tu carta de intención.");
         }
 
-        // Calcular el número de intento
-        int attemptNumber = submissionRepository
+        // 7. CÁLCULO DE ATTEMPT NUMBER: Buscamos el último y sumamos 1, o empezamos en 1
+        int nextAttempt = submissionRepository
                 .findTopByUser_IdOrderByAttemptNumberDesc(userId)
                 .map(s -> s.getAttemptNumber() + 1)
                 .orElse(1);
 
-        // Crear la submission
+        // 8. CREACIÓN DE LA SUBMISSION (Trámite de Admisión)
         Submission submission = new Submission();
         submission.setUser(user);
-        submission.setAttemptNumber(attemptNumber);
+        submission.setAttemptNumber(nextAttempt);
         submission.setStatus(SubmissionStatus.PENDING);
         submission.setReason(request.reason());
         submission.setSentAt(LocalDateTime.now());
+
+        // Guardamos primero la submission para tener el ID para el documento
         submission = submissionRepository.save(submission);
 
-        // Guardar el archivo y crear el Document
+        // 9. GESTIÓN DE ARCHIVO Y DOCUMENTO
+        // El storageService se encarga de la persistencia física (FileSystem/S3/Azure)
         String storedPath = storageService.store(file);
+
         Document document = new Document();
         document.setSubmission(submission);
         document.setPath(storedPath);
         document.setOriginalName(file.getOriginalFilename());
         document.setMimeType(file.getContentType());
         document.setSize(file.getSize());
+
         documentRepository.save(document);
 
-        log.info("Submission #{} creada para usuario {} (id={})",
-                attemptNumber, user.getEmail(), submission.getId());
+        log.info("Nueva solicitud de admisión (Intento #{}) creada para: {}", nextAttempt, user.getEmail());
 
+        // 10. SINCRONIZACIÓN: Forzamos el volcado para que el Mapper vea los datos frescos
         entityManager.flush();
         entityManager.clear();
 
-        Submission saved = submissionRepository.findById(submission.getId())
-                .orElseThrow();
-        return submissionMapper.toResponse(saved);
+        Submission savedSubmission = submissionRepository.findById(submission.getId())
+                .orElseThrow(() -> new AppException("Error al recuperar la submission guardada"));
+
+        return submissionMapper.toResponse(savedSubmission);
     }
 
     // ── Consultas del usuario ────────────────────────────────────────────────
@@ -126,10 +131,8 @@ public class SubmissionService {
 
     @Transactional(readOnly = true)
     public SubmissionResponse getById(UUID submissionId, Long requestingUserId, boolean isAdmin) {
-        Submission submission = submissionRepository.findById(submissionId)
+        Submission submission = submissionRepository.findByIdWithDetails(submissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Submission no encontrada"));
-
-        // Un usuario solo puede ver sus propias submissions a menos que sea admin
         if (!isAdmin && !submission.getUser().getId().equals(requestingUserId)) {
             throw new ForbiddenActionException("No tienes acceso a esta submission");
         }
