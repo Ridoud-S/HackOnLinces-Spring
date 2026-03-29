@@ -1,0 +1,25 @@
+# Ignorar dependencias locales y compilaciones previas
+target/
+.mvn/
+mvnw
+mvnw.cmd
+
+# Ignorar archivos de control de versiones
+.git
+.gitignore
+
+# Ignorar configuraciones de IDEs
+.vscode/
+.idea/
+*.iml
+.settings/
+.classpath
+.project
+
+# Ignorar archivos de entorno y logs
+.env
+*.log
+uploads/
+
+# Ignorar documentación
+*.md

@@ -35,6 +35,9 @@ build/
 # Ignorar configuraciones locales con datos sensibles
 src/main/resources/application-dev.yaml
 src/main/resources/application-prod.yaml
+.env
 
 # NO ignorar los ejemplos
 !src/main/resources/*.example
+
+
