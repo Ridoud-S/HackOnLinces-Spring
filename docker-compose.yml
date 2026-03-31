@@ -1,3 +1,0 @@
-# NOTA: El orquestador real se encuentra en: docker/docker-compose.yml
-# Para levantar la infraestructura ejecuta: docker-compose -f docker/docker-compose.yml up -d --build
-# Para levantar la infraestructura ejecuta: docker-compose -f docker/docker-compose.yml up -d --build

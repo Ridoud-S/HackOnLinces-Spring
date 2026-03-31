@@ -1,8 +1,32 @@
-HELP.md
+# ── Entorno ───────────────────────────────────────────────────────────────────
+.env
+*.env.local
+
+# ── Maven / Gradle ────────────────────────────────────────────────────────────
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# ── Uploads ───────────────────────────────────────────────────────────────────
+uploads/
+docker/uploads/
+
+# ── Docker secrets ────────────────────────────────────────────────────────────
+docker/secrets/
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.swp
+*.swo
 
 ### STS ###
 .apt_generated
@@ -13,33 +37,30 @@ target/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
-### VS Code ###
-.vscode/
+# ── Spring Boot ───────────────────────────────────────────────────────────────
+spring-shell.log
 
-# Ignorar configuraciones locales con datos sensibles
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Configuraciones locales sensibles ─────────────────────────────────────────
 src/main/resources/application-dev.yaml
 src/main/resources/application-prod.yaml
-.env
 
 # NO ignorar los ejemplos
 !src/main/resources/*.example
-# Docker
-uploads/
 
-
+# ── Otros ─────────────────────────────────────────────────────────────────────
+HELP.md

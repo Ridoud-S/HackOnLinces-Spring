@@ -1,8 +1,12 @@
+name: hackonlinces
+
 services:
+
+
   db:
+
     image: postgres:16-alpine
     container_name: hackonlinces_db
-    env_file: ../.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -18,35 +22,36 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-
+
 
   app:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
     container_name: hackonlinces_app
-    env_file: ../.env
     depends_on:
       db:
         condition: service_healthy
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
-      - DB_URL=jdbc:postgresql://db:5432/${POSTGRES_DB}
-      - DB_USERNAME=${DB_USERNAME:-${POSTGRES_USER}}
-      - DB_PASSWORD=${DB_PASSWORD:-${POSTGRES_PASSWORD}}
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRATION=${JWT_EXPIRATION}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
-      - UPLOAD_DIR=/app/uploads
-      - PORT=${PORT:-8080}
-      - JAVA_TOOL_OPTIONS=${JAVA_OPTS}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      UPLOAD_DIR: /app/uploads
+      PORT: ${PORT:-8080}
     ports:
       - "${PORT:-8080}:8080"
     volumes:
-      - ./uploads:/app/uploads
+      - uploads_data:/app/uploads
     networks:
       - hackonlinces-net
+    restart: unless-stopped
 
 networks:
   hackonlinces-net:
@@ -54,3 +59,4 @@ networks:
 
 volumes:
   postgres_data:
+  uploads_data:

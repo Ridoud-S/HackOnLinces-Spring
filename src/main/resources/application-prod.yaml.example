@@ -12,7 +12,9 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate        # En prod NUNCA modificamos el schema automáticamente
+      # update: crea/actualiza tablas automáticamente.
+      # Cambiar a validate cuando se adopte Flyway o Liquibase.
+      ddl-auto: update
     show-sql: false
 
   security:
