@@ -14,9 +14,11 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup -u 1000
 RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
 
 COPY --from=builder --chown=appuser:appgroup /build/target/*.jar app.jar
+COPY --chown=appuser:appgroup docker/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 USER appuser
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
