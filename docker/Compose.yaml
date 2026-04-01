@@ -23,7 +23,7 @@ services:
 
   app:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     container_name: hackonlinces_app
     depends_on:
