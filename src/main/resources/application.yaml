@@ -47,4 +47,4 @@ logging:
     # Minimizar el I/O de logs en producción para no saturar el disco del contenedor ni degradar rendimiento.
     mx.itcelaya.hackonlinces: INFO
     org.springframework.security: WARN
-    org.hibernate.SQL: WARNg
+    org.hibernate.SQL: WARN
